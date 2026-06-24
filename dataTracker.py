@@ -2,9 +2,12 @@ import sqlite3
 import win32gui
 import win32process
 import psutil
+import time
 import ctypes
 import datetime
-from datetime import datetime
+import threading
+import copy
+from datetime import datetime, timedelta
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 from collections import defaultdict
 from ctypes import wintypes
@@ -20,6 +23,7 @@ class Trackon(QThread):
         self.active_data_time = {}
         self.title_dict = defaultdict(dict)
         self.last_title = None
+        self.lock = threading.Lock()
         self.start_time = datetime.now()
 
 
@@ -90,11 +94,11 @@ class Trackon(QThread):
     ## This will be inside the while loop as
     def run_time(self):
         start_time = datetime.now()
-        save_start_time = datetime.now()
 
         self.last_title = None
         self.last_exe = None
         self.last_subname = None
+        save_start_time = datetime.now()
 
         def handle_event(hWinEventHook, event, hwnd, idObject, idDChild, dwEventThread, dwmsEventTime):
             nonlocal start_time
@@ -103,6 +107,7 @@ class Trackon(QThread):
                 _,pid = win32process.GetWindowThreadProcessId(hwnd)
                 process = psutil.Process(pid)
                 exe_name = process.name().replace(".exe", "")
+                
 
                 if not title:
                     title = exe_name
@@ -124,16 +129,16 @@ class Trackon(QThread):
                 if title != self.last_title:
                     end_time = datetime.now()
                     duration = (end_time - start_time).total_seconds()
+                    with self.lock:
+                        self.active_data_time[self.last_exe] = (
+                            self.active_data_time.get(self.last_exe, 0) + duration
+                        )
 
-                    self.active_data_time[self.last_exe] = (
-                        self.active_data_time.get(self.last_exe, 0) + duration
-                    )
-
-                    if self.last_exe not in self.title_dict:
-                        self.title_dict[self.last_exe] = {}
-                    self.title_dict[self.last_exe][self.last_subname] = (
-                        self.title_dict[self.last_exe].get(self.last_subname, 0) + duration
-                    )
+                        if self.last_exe not in self.title_dict:
+                            self.title_dict[self.last_exe] = {}
+                        self.title_dict[self.last_exe][self.last_subname] = (
+                            self.title_dict[self.last_exe].get(self.last_subname, 0) + duration
+                        )
 
                     self.last_title = title
                     self.last_exe = exe_name
@@ -141,8 +146,28 @@ class Trackon(QThread):
                     start_time = end_time
                     print(f"Window switched to: {title}")
 
+        
+
             except Exception:
                 pass
+
+
+        def flush_check():
+                    nonlocal save_start_time
+                    while True:
+                        time.sleep(30)
+                        if datetime.now() >= save_start_time + timedelta(minutes = 5):
+                            with self.lock:
+                                parent_copy = copy.deepcopy(self.active_data_time)
+                                child_copy = copy.deepcopy(self.title_dict)
+                            
+                            self.saveDB(parent_copy)
+                            self.saveSBD(child_copy)
+                            print("Success after 5 minutes")
+                            save_start_time = datetime.now()
+        
+        threading.Thread(target=flush_check, daemon =True).start()
+
 
         WinEventProc = ctypes.WINFUNCTYPE(
             None,
@@ -173,8 +198,6 @@ class Trackon(QThread):
         ctypes.windll.user32.UnhookWinEvent(hook)
 
 
-
-        
 
 
 if __name__ == "__main__":

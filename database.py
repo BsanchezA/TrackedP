@@ -20,7 +20,7 @@ cur = conn.cursor()
 #             );
 #             """)
 
-cur.execute("SELECT * FROM program")
+cur.execute("SELECT * FROM subprogram")
 print(cur.fetchall())
 
 
