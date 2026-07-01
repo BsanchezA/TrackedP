@@ -165,6 +165,7 @@ class Trackon(QThread):
                             self.saveSBD(child_copy)
                             print("Success after 5 minutes")
                             save_start_time = datetime.now()
+
         
         threading.Thread(target=flush_check, daemon =True).start()
 
