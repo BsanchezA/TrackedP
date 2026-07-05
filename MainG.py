@@ -23,9 +23,7 @@ class MainWindow(QMainWindow):
         self.w = secondWindow()
         self.button4 = QPushButton("Activty In Depth")
         self.button5 = QPushButton("Study Mode")
-        #button.setGeometry(900, 600, 100, 50)
 
-        # Position window at (100, 100) byt it is the size of (480 by 80)
         self.setGeometry(600, 300, 680, 400)
         layout.addWidget(self.button2, alignment = Qt.AlignmentFlag.AlignBottom)
         layout.addWidget(button, alignment = Qt.AlignmentFlag.AlignBottom)
@@ -38,23 +36,17 @@ class MainWindow(QMainWindow):
         self.button4.clicked.connect(self.toggle_activity)
         self.button5.clicked.connect(self.gotoStudy)
         self.Track_helper = dataTracker.Trackon()
-
         self.datafornow = {}
 
-        # self.table = QTableWidget()
-        # self.table.setColumnCount(2)
-        # self.table.setHorizontalHeaderLabels(["Application", "Time Spent"])
-        # self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # layout.addWidget(self.table)
-        # self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        # self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-
-
     def start_click(self):
+
+        if getattr(self.Track_helper, "_started", False):
+            return
+        self.Track_helper._started = True
+
         self.button2.setEnabled(False)
         self.thread = QThread()
         self.Track_helper.moveToThread(self.thread)
-
         self.thread.started.connect(self.Track_helper.run_time)
         self.thread.start()
 
@@ -77,9 +69,7 @@ class MainWindow(QMainWindow):
             self.w.show()
 
     def gotoStudy(self):
-        windowtwo = studyWindow()
-        widget.addWidget(windowtwo)
-        widget.setCurrentIndex(widget.currentIndex() + 1)
+        widget.setCurrentIndex(1)
 
 
 class secondWindow(QMainWindow):
@@ -128,9 +118,11 @@ class secondWindow(QMainWindow):
             
 
 class studyWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, conn):
         super().__init__()
+        self.conn = conn
         self.setWindowTitle("Study Window")
+        self.setMinimumSize(500, 500)
         container = QWidget()
         self.setCentralWidget(container)
         layout = QVBoxLayout(container)
@@ -141,7 +133,6 @@ class studyWindow(QMainWindow):
         self.buttonone.clicked.connect(self.backhome)
 
         work_space = QVBoxLayout()
-        work_space.setContentsMargins(11, 11, 11, 11)
 
                
         today = date.today()
@@ -160,13 +151,15 @@ class studyWindow(QMainWindow):
         work_space.addWidget(self.buttonO, alignment=Qt.AlignmentFlag.AlignBottom)
         self.created_check = []
         self.buttonO.clicked.connect(self.updatecheck)
+
         layout.addLayout(work_space)
 
 
 
 
-        layout.addWidget(self.buttonone, alignment= Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.buttonone, alignment= Qt.AlignmentFlag.AlignBottom)
         self.buttonone.clicked.connect(self.backhome)
+        self.load_today_goals()
         
     def updatecheck(self):
         if len(self.created_check) >= 3:
@@ -177,19 +170,49 @@ class studyWindow(QMainWindow):
         
 
         checkbox = QCheckBox(text = obj)
+        checkbox.stateChanged.connect(lambda state, o = obj: self.save_goal_state(o, state))
         self.created_check.append(checkbox)
         self.work_space.addWidget(checkbox)
 
+
         self.bottom_line_edit.clear()
+        self.save_goal(obj)
 
-    
+    def save_goal(self, obj):
+        query = QSqlQuery(self.conn)
+        query.prepare("INSERT INTO Goals (date, objective, completed) VALUES (?, ?, 0)")
+        query.addBindValue(date.today().isoformat())
+        query.addBindValue(obj)
+        query.exec()
 
-        
+
+    def save_goal_state(self, obj, state):
+        query = QSqlQuery(self.conn)
+        query.prepare("UPDATE Goals SET completed = ? WHERE date = ? AND objective = ?")
+        query.addBindValue(1 if state else 0)
+        query.bindValue(date.today().isoformat())
+        query.addBindValue(obj)
+        query.exec()
+
+    def load_today_goals(self):
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT objective, completed FROM Goals WHERE date = ?")
+        query.addBindValue(date.today().isoformat())
+        query.exec()
+        while query.next():
+            obj = query.value(0)
+            completed = bool(query.value(1))
+            checkbox = QCheckBox(text = obj)
+            checkbox.setChecked(completed)
+            checkbox.stateChanged.connect(lambda state, o=obj: self.save_goal_state(o, state))
+            self.created_check.append(checkbox)
+            self.work_space.addWidget(checkbox)
+
+
 
     def backhome(self):
-        mainwindow = MainWindow()
-        widget.addWidget(mainwindow)
-        widget.setCurrentIndex(widget.currentIndex() + 1)
+        widget.setCurrentIndex(0)
+        
 
 
 
@@ -197,9 +220,23 @@ class studyWindow(QMainWindow):
 
 
 app = QApplication(sys.argv)
+
+conn = QSqlDatabase.addDatabase("QSQLITE", "app_conn")
+conn.setDatabaseName("programs.db")
+conn.open()
+
+
+
+
+track_helper = dataTracker.Trackon()
+
 widget = QtWidgets.QStackedWidget()
-window = MainWindow()
-widget.addWidget(window)
-window.show()
+main_window = MainWindow()
+study_window = studyWindow(conn)
+
+widget.addWidget(main_window)
+widget.addWidget(study_window)
+widget.setCurrentIndex(0)  # MAIN WINDOW IS 0 since i put it first
 widget.show()
-app.exec()
+
+sys.exit(app.exec())

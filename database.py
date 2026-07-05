@@ -20,9 +20,20 @@ cur = conn.cursor()
 #             );
 #             """)
 
-cur.execute("SELECT * FROM program")
-print(cur.fetchall())
+# cur.execute("SELECT * FROM program")
+# print(cur.fetchall())
 
+cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Goals (
+            date Text,
+            objective Text,
+            completed INTEGER DEFAULT 0
+        );
+
+        """
+
+)
 
 
 conn.commit()
