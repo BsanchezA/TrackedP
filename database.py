@@ -23,17 +23,31 @@ cur = conn.cursor()
 # cur.execute("SELECT * FROM program")
 # print(cur.fetchall())
 
+# cur.execute(
+#         """
+          
+#         DROP TABLE Settings
+#         """
+
+
+
+
 cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS Goals (
-            date Text,
-            objective Text,
-            completed INTEGER DEFAULT 0
-        );
+        CREATE TABLE IF NOT EXISTS Settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            break_time INTEGER
+        )
+            """
 
-        """
 
 )
+
+
+
+# cur.execute("Select * FROM Settings")
+# print(cur.fetchall())
+
 
 
 conn.commit()

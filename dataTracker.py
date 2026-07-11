@@ -92,8 +92,11 @@ class Trackon(QThread):
 
     ## This is what were trying to replace for the constant dictionary time
     ## This will be inside the while loop as
-    def run_time(self):
+    def run(self):
+        self.win_threadid = ctypes.windll.kernel32.GetCurrentThreadId()
         start_time = datetime.now()
+        #This tracks each application, not overall time
+    
 
         self.last_title = None
         self.last_exe = None
@@ -145,6 +148,7 @@ class Trackon(QThread):
                     self.last_subname = subname
                     start_time = end_time
                     print(f"Window switched to: {title}")
+                    time.sleep(1)
 
         
 
@@ -198,7 +202,10 @@ class Trackon(QThread):
         
         ctypes.windll.user32.UnhookWinEvent(hook)
 
-
+    def stop_tracking(self):
+        W_QUIT = 0x0012
+        ctypes.windll.user32.PostThreadMessageW(self.win_threadid, W_QUIT, 0, 0)
+        
 
 
 if __name__ == "__main__":
