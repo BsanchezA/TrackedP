@@ -1,5 +1,6 @@
 import datetime
 import sys
+import pyqtgraph as pg
 from tkinter.font import Font
 import dataTracker
 import sqlite3
@@ -8,62 +9,67 @@ from datetime import date
 from PyQt6.QtCore import QSize, QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.uic import load_ui
-from PyQt6.QtWidgets import QApplication, QCheckBox, QGridLayout, QLineEdit, QMainWindow, QPushButton, QSpinBox, QToolButton, QWidget, QStackedWidget,QVBoxLayout, QLabel, QHeaderView,  QTableView, QStyle, QHBoxLayout
+from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QGridLayout, QInputDialog, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPushButton, QScrollBar, QSpinBox, QTextEdit, QToolButton, QWidget, QStackedWidget,QVBoxLayout, QLabel, QHeaderView,  QTableView, QStyle, QHBoxLayout, QVBoxLayout
 from PyQt6.QtSql import QSqlDatabase, QSqlTableModel, QSqlQuery, QSqlQueryModel
 
 class MainWindow(QMainWindow):
+    update_bar_graph = pyqtSignal()
     def __init__(self, stack):
         super().__init__()
         self.stack = stack
         self.setWindowTitle("Trackon App")
         self.conn = conn
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.id_stack = []
+
         container = QWidget()
-        layout = QGridLayout()
-        #adding the screen time window 
+        main_layout = QVBoxLayout()  # top-level row stack
+
+        # --- Row 0: Top button bar ---
+        Top_Button_layout = QHBoxLayout()
+
+        # adding the screen time window
         self.App_data_window = secondWindow()
 
         # All buttons created
         self.button = QPushButton("Sync")
         self.button2 = QPushButton("Start Timer")
-        self.button3 = QPushButton("End Timer")
         self.button4 = QPushButton("Activty In Depth")
-        self.button5 = QPushButton("Study Mode")
+        self.button5 = QPushButton("Productivity Peformance")
         self.button_settings = QPushButton("Settings")
-
+        self.add_task_button = QPushButton("Add/Modify Tasks")
 
         self.setGeometry(600, 600, 680, 600)
 
-        #Add the widgets here
-        layout.addWidget(self.button2, 0, 0)
-        layout.addWidget(self.button, 0, 1)
-        layout.addWidget(self.button3, 0, 2)
-        layout.addWidget(self.button4,0, 3)
-        layout.addWidget(self.button5, 0, 4)
-        layout.addWidget(self.button_settings, 0, 5)
+        Top_Button_layout.addWidget(self.button2)
+        Top_Button_layout.addWidget(self.button)
+        Top_Button_layout.addWidget(self.button4)
+        Top_Button_layout.addWidget(self.button5)
+        Top_Button_layout.addWidget(self.add_task_button)
+        Top_Button_layout.addWidget(self.button_settings)
 
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        Top_Button_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        #Connect the buttons here
+        # Connect the buttons here
         self.button.clicked.connect(self.sync)
         self.button2.clicked.connect(self.start_click)
-        self.button3.clicked.connect(self.end_timer)
         self.button4.clicked.connect(self.toggle_activity)
         self.button5.clicked.connect(self.gotoStudy)
+        self.add_task_button.clicked.connect(self.opening_task_popup)
         self.button_settings.clicked.connect(self.go_settings)
 
+        main_layout.addLayout(Top_Button_layout)
 
         self.Track_helper = dataTracker.Trackon()
         self.datafornow = {}
 
-        #This adds the Label of the date (I'll personalize this later on)
+        # --- Row 1: Date label + session-completed label ---
+        date_row = QHBoxLayout()
         today = date.today()
         format_two = today.strftime("%B %d, %Y")
         label_one = QLabel(f"Today is {format_two}", self)
         label_one.setWordWrap(True)
 
-
-        #UI FONT DOWNLOAD
         font_id = QFontDatabase.addApplicationFont("DM_Sans/static/DMSans-Regular.ttf")
         if font_id != -1:
             font_families = QFontDatabase.applicationFontFamilies(font_id)
@@ -72,10 +78,6 @@ class MainWindow(QMainWindow):
         else:
             print("Failed to load font, going default")
             dm_sans_font = QFont("Arial", 16)
-        
-
-        
-
 
         label_one.setStyleSheet(
             """
@@ -85,18 +87,131 @@ class MainWindow(QMainWindow):
             padding-bottom: 10px
             """
         )
-        
-        layout.addWidget(label_one, 1,0, 1, 2)
 
         self.label_sesssion_completed = QLabel()
         self.load_session()
-        layout.addWidget(self.label_sesssion_completed, 1, 5)
 
-        container.setLayout(layout)
+        date_row.addWidget(label_one, alignment=Qt.AlignmentFlag.AlignTop)
+        date_row.addStretch()
+        date_row.addWidget(self.label_sesssion_completed, alignment=Qt.AlignmentFlag.AlignTop)
+
+        main_layout.addLayout(date_row)
+
+        # --- Row 2: Tasks header ---
+        self.created_check = []
+        print(self.created_check)
+        self.top_3_goals = QLabel("Todays Tasks :")
+        self.top_3_goals.setStyleSheet(
+            """
+            font-family: 'DM Sans';
+            font-size: 18px;
+            font-weight: 500;
+            padding-bottom: 10px
+            """
+        )
+        main_layout.addWidget(
+            self.top_3_goals,
+            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+
+        # --- Row 3: Workspace ---
+        self.workspace = QVBoxLayout()
+        main_layout.addLayout(self.workspace)
+        main_layout.addStretch()
+    
+        #add strech is what keeps everything together after adding, this should be placed after adding all rows of information
+
+        # ---Row 4: Bar Graph ---
+        main_layout.addLayout(self.build_bar_row(self.build_bar_analysis()))
+
+
+
+
+
+
+        container.setLayout(main_layout)
+
+
+
+        self.load_today_goals()
+
         self.setCentralWidget(container)
 
+    def build_bar_row(self,  control_widget):
+            row = QVBoxLayout()
+            row.addStretch()
+            row.addWidget(control_widget, alignment=Qt.AlignmentFlag.AlignVCenter)
+            row.addStretch()
+            return row
 
 
+    def build_bar_analysis(self):
+        self.weekly_rating = pg.PlotWidget()
+        hours = self.get_weekly_hours()
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+        x = list(range(len(days)))
+
+        bar = pg.BarGraphItem(x=x, height = hours, width = 0.6, brush = 'w')
+        self.weekly_rating.addItem(bar)
+
+        ticks = [list(zip(x, days))]
+        self.weekly_rating.getAxis('bottom').setTicks(ticks)
+
+        #Customizing the bar to be view only and other visual gimmicks
+        self.weekly_rating.setLabel('left', 'Hours Studied')
+        self.weekly_rating.setYRange(0, max(hours) + 1)
+        self.weekly_rating.showGrid(y=True, alpha = 0.3)
+        self.weekly_rating.hideButtons()
+        self.weekly_rating.setMenuEnabled(False)
+        self.weekly_rating.setMouseEnabled(x=False, y=False)
+        self.weekly_rating.getViewBox().setMouseEnabled(x=False, y=False)
+        print("hours: ", hours)
+        return self.weekly_rating
+
+
+
+
+
+    def get_weekly_hours(self):
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        hours = {day: 0.0 for day in days}
+
+        query = QSqlQuery(self.conn)
+        query.exec(
+            """ 
+                SELECT strftime('%w', date) as day_num, SUM(session_time)
+                FROM Session_time
+                Where date >= date('now', 'weekday 0', '-6 days')
+                GROUP BY day_num
+            """
+        )
+
+        while query.next():
+            day_num = int(query.value(0))
+            total_seconds = query.value(1)
+            day_name = days[(day_num - 1) % 7]
+            hours[day_name] = total_seconds / 3600.0
+
+        return [hours[day] for day in days]
+
+    def update_bar_graph(self):
+        ## GETS THE SIGNAL WHEN SESSION IS DONE HERE
+        print("bar should be updated")
+        self.weekly_rating.clear()
+        hours = self.get_weekly_hours()
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        x = list(range(len(days)))
+        bar = pg.BarGraphItem(x=x, height = hours, width=0.6, brush = 'w')
+        self.weekly_rating.addItem(bar)
+        ticks = [list(zip(x, days))]
+        self.weekly_rating.getAxis('bottom').setTicks(ticks)
+        print("hours: ", hours)
+
+
+
+        
+ 
 
     def start_click(self):
 
@@ -108,20 +223,71 @@ class MainWindow(QMainWindow):
         self.Track_helper.start()
 
         self.timer_window = TimerWindow_Popup(conn)
+        #ONCE THESE SIGNALS ARE RECIEVED (END SESSION HAS BEEN CLICKED)
         self.timer_window.session_completed_time.connect(self._on_timer_session_done)
+        self.timer_window.session_to_review.connect(self.switch_to_review_window)
+
 
         index = self.stack.addWidget(self.timer_window)
         self.stack.setCurrentIndex(index)
 
+    def switch_to_review_window(self):
+        self.review_window = review_Popup(self)     
 
-    def _on_timer_session_done(self, result: int):
+        #This prompts going to the text window
+        self.review_window.session_to_text.connect(self.go_to_text_window)
+
+        #This prompts to go back home when pressing skip
+        self.review_window.completed_review_popup.connect(self.review_cleanup)
+        
+        
+        index_review = self.stack.addWidget(self.review_window)
+        self.stack.setCurrentIndex(index_review)
+        print(self.stack)
+
+
+    def review_cleanup(self):
+        self.stack.removeWidget(self.review_window)
+        self.review_window.deleteLater()
+        self.review_window = None
+        self.stack.setCurrentIndex(0)
+
+    def go_to_text_window(self):
+        self.text_review = text_review(conn, self)
+
+        #This prompts to clean up after finished with the text notes (IDK if I need to cleanup both text and review)
+        self.text_review.text_done.connect(self.text_cleanup)
+
+        index_text = self.stack.addWidget(self.text_review)
+        self.stack.setCurrentIndex(index_text)
+
+        print(self.stack)
+
+    def text_cleanup(self):
+        self.stack.removeWidget(self.text_review)
+        self.text_review.deleteLater()
+        self.text_review = None
+        self.stack.setCurrentIndex(0)
+        
+
+    def track_inside_session(self):
+        #Using run, we track specifically what is done app. wise during our study session. So from the start click, we put the app. and time into a seperate dict, and we push it into the save file of that specific study session,
+        #this means, we need to store the study session, idk how, but minimize AI for regular problem solving
+
+        
+
+        return 
+
+    def _on_timer_session_done(self, result: int): 
         self.Track_helper._started = False
         self.Track_helper.stop_tracking()
         self.Track_helper.wait()
 
         
-        self.mark_session_completed(result)
+        self.id_stack.append(self.mark_session_completed(result))
+        print(self.id_stack)
         self.load_session()
+
 
         self.stack.removeWidget(self.timer_window)
         self.timer_window.deleteLater()
@@ -133,22 +299,36 @@ class MainWindow(QMainWindow):
     # This relates to the sessions completed of studying sessions
     def mark_session_completed(self, result):
         query = QSqlQuery(self.conn)
-        query.prepare("""INSERT INTO session (date, session_marked) 
+        query.prepare("""INSERT INTO Session_time (date, session_time) 
                       VALUES (?, ?)
-                      ON CONFLICT(date) DO UPDATE SET
-                        session_marked = session_marked + excluded.session_marked
                       """)
         query.addBindValue(date.today().isoformat())
         query.addBindValue(result)
-        query.exec()
+        if not query.exec():
+            print("Insert failed:", query.lastError().text())
+            return None
+
+        recent_session = query.lastInsertId()
+        self.update_bar_graph()
+        return recent_session
     #Loads the time of the session since this makes more sense
+
+    ## READ THIS - 7/17/26
+    #I need to add the emit functions for when it takes us to text page or vide 
+
     def load_session(self):
         query = QSqlQuery(self.conn)
-        query.prepare("SELECT session_marked FROM session WHERE date = ?")
-        query.addBindValue(date.today().isoformat())
+        today = date.today().isoformat()
+        query.prepare(""" 
+            SELECT date, SUM(session_time) AS total_time
+            FROM Session_time
+            WHERE date = ?
+            GROUP BY date
+        """)
+        query.addBindValue(today)
         query.exec()
         if query.next():
-            session_counted = query.value(0)
+            session_counted = query.value(1)
         else:
             session_counted = 0
 
@@ -170,12 +350,6 @@ class MainWindow(QMainWindow):
         self.Track_helper.saveSBD(self.Track_helper.title_dict)
 
     
-    def end_timer(self):
-        try:
-            self.Track_helper.saveDB(self.Track_helper.active_data_time)
-            self.Track_helper.saveSBD(self.Track_helper.title_dict)
-        finally:
-            QApplication.instance().quit()
 
     def toggle_activity(self, checked):
         if self.App_data_window.isVisible():
@@ -189,10 +363,89 @@ class MainWindow(QMainWindow):
     def go_settings(self):
         widget.setCurrentIndex(2)
 
+    def opening_task_popup(self):
+        dialog = task_pop_up(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            task_text = dialog.get_text_from_task()
+            if task_text.strip():
+                self.updatecheck(task_text.strip())
+        
+    def updatecheck(self, obj):
+        if len(self.created_check) >= 3:
+            QMessageBox.warning(None, "Warning", "You already have 3 tasks, Focus on those")
+            return
+        if not obj:
+            return
+        
+
+        checkbox = QCheckBox(text = obj)
+        checkbox.stateChanged.connect(lambda state, o = obj: self.save_goal_state(o, state))
+        self.created_check.append(checkbox)
+        self.workspace.addWidget(checkbox, Qt.AlignmentFlag.AlignLeft)
+
+
+        # self.input_task.clear()
+        self.save_goal(obj)
+
+    def save_goal_state(self, obj, state): #updating goal state in SQL (completing a thing)
+        query = QSqlQuery(self.conn)
+        query.prepare("UPDATE Goals SET completed = ? WHERE date = ? AND objective = ?")
+        query.addBindValue(1 if state else 0)
+        query.addBindValue(date.today().isoformat())
+        query.addBindValue(obj)
+        query.exec()
+
+        #Future addition, If all 3 are done, there is an option to clear out again and add 3 new ones. But the focus is to break down the day to 3 tasks to not overwhelm the user
+
+    def load_today_goals(self):
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT objective, completed FROM Goals WHERE date = ?")
+        query.addBindValue(date.today().isoformat())
+        query.exec()
+        while query.next():
+            obj = query.value(0)
+            completed = bool(query.value(1))
+            checkbox = QCheckBox(text = obj)
+            checkbox.setChecked(completed)
+            checkbox.stateChanged.connect(lambda state, o=obj: self.save_goal_state(o, state))
+            self.created_check.append(checkbox)
+            self.workspace.addWidget(checkbox)
+
+    def save_goal(self, obj): # new goal
+        query = QSqlQuery(self.conn)
+        query.prepare("INSERT INTO Goals (date, objective, completed) VALUES (?, ?, 0)")
+        query.addBindValue(date.today().isoformat())
+        query.addBindValue(obj)
+        query.exec()
+
+class task_pop_up(QDialog):
+    def __init__(self, parent = None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        user_prompt = QLabel("Add a Task")
+        self.input_task = QLineEdit(self)
+        self.button = QPushButton("Add", self)
+        layout.addWidget(user_prompt)
+        layout.addWidget(self.input_task)
+        layout.addWidget(self.button)
+        self.button.clicked.connect(self.bridge_connect)
+
+    def bridge_connect(self):
+        if self.input_task.text().strip():
+            self.accept()
+        else:
+            self.input.setPlaceholderText("Task has be to inputted")
+
+    def get_text_from_task(self):
+        place = self.input_task.text()
+        self.input_task.clear()
+        return place 
 
 
 class TimerWindow_Popup(QWidget):
     session_completed_time = pyqtSignal(int)
+    session_to_review = pyqtSignal()
+    session_update = pyqtSignal()
 
 
     def __init__(self, conn,  buffer_seconds = 30 ,parent = None):
@@ -205,6 +458,9 @@ class TimerWindow_Popup(QWidget):
         self.elapsed_seconds = 0
         self.in_buffer = True
         self.elapsed_start = False
+        self.review_flag = False
+        self.review_session_opened = review_Popup(self)
+        
 
 
 
@@ -234,13 +490,13 @@ class TimerWindow_Popup(QWidget):
         topPosition.addWidget(break_button)
 
 
-        layout = QVBoxLayout(self)
-        layout.addLayout(topPosition)
-        layout.addStretch()
-        layout.addWidget(self.time_label)
-        layout.addStretch()
-        layout.addWidget(self.skip_button, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(end_button)
+        self.timer_layout = QVBoxLayout(self)
+        self.timer_layout.addLayout(topPosition)
+        self.timer_layout.addStretch()
+        self.timer_layout.addWidget(self.time_label)
+        self.timer_layout.addStretch()
+        self.timer_layout.addWidget(self.skip_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.timer_layout.addWidget(end_button)
 
         if self.in_buffer:
             self.time_label.setStyleSheet("font-size: 26pt; color: yellow")
@@ -252,6 +508,8 @@ class TimerWindow_Popup(QWidget):
         self.qtimer.setInterval(1000)
         self.qtimer.timeout.connect(self._tick)
         self.qtimer.start()
+        if (self.review_flag):
+            self.review_session_page()
 
     def skipping(self):
         self.skip_pressed= True
@@ -298,11 +556,17 @@ class TimerWindow_Popup(QWidget):
     def end_session(self):
         self.qtimer.stop()
 
-        # This is emitting the elapsed time which is adding to the session total
-        #This should be the total time spent studying per week
-        #I need to seperate 2 things now
+        # sends the signal to update the bar graph with new session data
+        self.session_update.emit()
+        #sends the signal to update to main window and save the data to display
         self.session_completed_time.emit(self.elapsed_seconds)
-    
+        #if this signal is sent, we instead of main window, go to the review window
+        if (self.in_buffer == False):
+            self.session_to_review.emit()
+        
+
+
+        return
     def break_connection(self):
         self.break_pressed = True
         self.elapsed_start = False
@@ -320,57 +584,179 @@ class TimerWindow_Popup(QWidget):
         m, s = divmod(seconds, 60)
         return f"{m:02d}:{s:02d}"
         
+class review_Popup(QWidget):
+    session_to_text = pyqtSignal()
+    session_to_video = pyqtSignal()
+    completed_review_popup = pyqtSignal()
+    def __init__(self, main_window):
+        super().__init__()
+        self.text_flag = False
+        self.skip_flag = False
+        layout = QVBoxLayout(self)
+        layout.addStretch()
+
+        self.skip_review_button = QPushButton("Skip")
+        self.text_review = QPushButton("Note")
+        self.video_review = QPushButton("Video")
+
+        self.skip_review_button.clicked.connect(self.skip_home)
+        self.text_review.clicked.connect(self.text_page)
+
+        middle_position = QHBoxLayout()
+        middle_position.addStretch()
+        middle_position.addWidget(self.text_review)
+        middle_position.addWidget(self.video_review)
+        middle_position.addWidget(self.skip_review_button)
+        middle_position.addStretch()
+
+
+
+        layout.addLayout(middle_position)
+        layout.addStretch()
+
+    def text_page(self):
+        print("Going to text ...")
+        self.text_flag = True
+        self.session_to_text.emit()
+
+    def skip_home(self):
+        print("Emitted and going back home ... ")
+        self.completed_review_popup.emit()
+
+class text_review(QWidget):
+    text_done = pyqtSignal()
+    def __init__(self, conn, main_win):
+        super().__init__()
+        self.conn = conn
+        self.main_win = main_window
+        self.final_id = self.main_win.id_stack.pop()
+
+
+        layout = QVBoxLayout(self)
+
+        self.top_layout = QHBoxLayout()
+
+        self.title = QLineEdit()
+        self.title.setPlaceholderText(f"Session # {self.final_id}")
+        self.done_button = QPushButton("Done")
+        self.done_button.clicked.connect(self.done_activate)
+        self.top_layout.addWidget(self.title)
+
+        layout.addLayout(self.top_layout)
+        layout.addStretch()
+
+        self.notes = QTextEdit()
+        self.notes.setPlaceholderText("Review what went over during the session ...")
+
+        self.middle_layout = QHBoxLayout()
+        self.middle_layout.addWidget(self.notes)
+        layout.addLayout(self.middle_layout)
+        layout.addStretch()
+        layout.addWidget(self.done_button)
+
+
+
+    def get_most_recent_id(self, result_id: int):
+        self.stack_text.append(result_id)
+
+    def save_title_and_notes(self, session_id_created):
+        title_session = self.title.text()
+        complete_notes = self.notes.toPlainText()
+
+        query = QSqlQuery(self.conn)
+        query.prepare("""INSERT INTO Session_information (session_title,  session_notes, session_id) 
+                      VALUES (?, ?, ?)
+                      """)
+        query.addBindValue(title_session)
+        query.addBindValue(complete_notes)
+        query.addBindValue(session_id_created) 
+        query.exec()
+
+
+    def done_activate(self):
+        print("Text done, going back home ...")
+        self.save_title_and_notes(self.final_id)
+        self.final_id = None
+        self.text_done.emit()
 
 class settings_window(QWidget):
     def __init__(self, conn):
         super().__init__()
         self.conn = conn
         self.setMinimumSize(500, 800)
-        layout = QGridLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        main_layout.setSpacing(12)
+
+
         self.button_back_home = QPushButton("Back Home")
-        layout.addWidget(
-            self.button_back_home, 0, 0,
-            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        self.button_back_home.clicked.connect(self.back_home)
+        main_layout.addWidget(
+            self.button_back_home,
+            alignment=Qt.AlignmentFlag.AlignLeft
         )
         
-        self.button_back_home.clicked.connect(self.back_home)
 
         self.Notifications_handle = QLabel("Modify Notifications Below")
         self.Notifications_handle.setStyleSheet(
             """
-                font-family = 'DM Sans';
+                font-family: 'DM Sans';
                 font-size: 12 px;
                 color: #CBCBCB
             """
         )
-        layout.addWidget(
-            self.Notifications_handle, 1, 0,
-            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        main_layout.addWidget(
+            self.Notifications_handle,
+            alignment=Qt.AlignmentFlag.AlignLeft 
         )
 
+        main_layout.addLayout(self.make_setting_row("Change Break Time", self.build_break_time_adjuster()))
+
+        self.apply_button = QPushButton("Apply")
+        self.apply_button.clicked.connect(self.apply_settings)
+
+        app_explain = QLabel("Modify Applications / Websites to be banned when a study session is ocurring")
+        app_explain.setStyleSheet(
+            """
+                            font-family: 'DM Sans';
+                            font-size: 12 px;
+                            color: #CBCBCB
+         """
+
+        )
+        main_layout.addWidget(app_explain)
+
+    #This row will be focusing on which apps will trigger a notification to get off
+       
+
+
+        apply_row = QHBoxLayout()
+        apply_row.addStretch()
+        apply_row.addWidget(self.apply_button)
+        apply_row.addStretch()
+        main_layout.addLayout(apply_row)
+
+
+        self.load_settings()
+
+    def make_setting_row(self, label_text, control_widget):
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        label = QLabel(label_text)
+        row.addWidget(label, alignment=Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(control_widget, alignment=Qt.AlignmentFlag.AlignVCenter)
+        row.addStretch()
+        return row
+    
+
+    def build_break_time_adjuster(self):
         self.break_time_adjuster = QSpinBox()
         self.break_time_adjuster.setMinimum(2)
         self.break_time_adjuster.setMaximum(30)
-
         self.break_time_adjuster.setSuffix(" Mins")
-
         self.break_time_adjuster.valueChanged.connect(self.value_changed)
-
-
-        layout.addWidget(
-            self.break_time_adjuster, 1, 1,
-            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-
-        self.apply_button = QPushButton("Apply")
-        layout.addWidget(
-            self.apply_button, 5,0,
-            alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop
-        )
-        self.apply_button.clicked.connect(self.apply_settings)
-
-        self.load_settings()
+        return self.break_time_adjuster
 
 
 
@@ -396,14 +782,14 @@ class settings_window(QWidget):
     def value_changed(self, new_value):
         self.current_break_time = new_value
 
+
+
+
         
 
 
     def back_home(self):
         widget.setCurrentIndex(0)
-
-
-
 
 class secondWindow(QMainWindow):
     def __init__(self):
@@ -449,7 +835,6 @@ class secondWindow(QMainWindow):
         self.projectView.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.stacked_widget.addWidget(page)
             
-
 class studyWindow(QMainWindow):
     def __init__(self, conn):
         super().__init__()
@@ -461,94 +846,82 @@ class studyWindow(QMainWindow):
         layout = QVBoxLayout(container)
 
 
+        self.workspace = QHBoxLayout()
+        self.window_Label = QLabel("View Previous Logs")
+        self.window_Label.setStyleSheet(
+                    """
+                        font-family: 'DM Sans';
+                        font-size: 18 px;
+                        font-weight: 500;
+                        color: #CBCBCB
+                    """
+                )
+        self.workspace.addWidget(self.window_Label)
+
+        layout.addLayout(self.workspace)
+        layout.addStretch()
+
+        
+
+        self.middle = QHBoxLayout()
+        self.Log_widget = QListWidget(self)
+        self.grab_logs()
+        Log_scroll = QScrollBar(self)
+        Log_scroll.setMaximum(self.Log_widget.count())
+        Log_scroll.sliderMoved.connect(self.Log_widget.setCurrentRow)
+        self.Log_widget.itemDoubleClicked.connect(self.open)
+        self.middle.addWidget(self.Log_widget)
+        self.middle.addWidget(Log_scroll)
+
+        layout.addLayout(self.middle)
+        layout.addStretch()
+        
         self.buttonone = QPushButton("Back Home")
         layout.addWidget(self.buttonone, alignment= Qt.AlignmentFlag.AlignCenter)
         self.buttonone.clicked.connect(self.backhome)
 
-        work_space = QVBoxLayout()
-
-               
-        today = date.today()
-        format_two = today.strftime("%B %d, %Y")
-        label_one = QLabel(f"Welcome, Today is {format_two}", self)
-        label_one.setWordWrap(True)
-        work_space.addWidget(label_one)
-
-        to_do = QLabel("Add an Objective For Today", parent = self)
-        to_do.setWordWrap(True)
-        self.bottom_line_edit = QLineEdit(parent = self)
-        work_space.addWidget(to_do)
-        work_space.addWidget(self.bottom_line_edit)
-        self.work_space = work_space
-        self.buttonO = QPushButton("Add")
-        work_space.addWidget(self.buttonO, alignment=Qt.AlignmentFlag.AlignBottom)
-        self.created_check = []
-        self.buttonO.clicked.connect(self.updatecheck)
-
-        layout.addLayout(work_space)
-
-
-
-
-        layout.addWidget(self.buttonone, alignment= Qt.AlignmentFlag.AlignBottom)
-        self.buttonone.clicked.connect(self.backhome)
-        self.load_today_goals()
-        
-    def updatecheck(self):
-        if len(self.created_check) >= 3:
-            return
-        obj = self.bottom_line_edit.text().strip()
-        if not obj:
-            return
-        
-
-        checkbox = QCheckBox(text = obj)
-        checkbox.stateChanged.connect(lambda state, o = obj: self.save_goal_state(o, state))
-        self.created_check.append(checkbox)
-        self.work_space.addWidget(checkbox)
-
-
-        self.bottom_line_edit.clear()
-        self.save_goal(obj)
-
-    def save_goal(self, obj): # new goal
-        query = QSqlQuery(self.conn)
-        query.prepare("INSERT INTO Goals (date, objective, completed) VALUES (?, ?, 0)")
-        query.addBindValue(date.today().isoformat())
-        query.addBindValue(obj)
-        query.exec()
-
-
-    def save_goal_state(self, obj, state): #updating goal state in SQL (completing a thing)
-        query = QSqlQuery(self.conn)
-        query.prepare("UPDATE Goals SET completed = ? WHERE date = ? AND objective = ?")
-        query.addBindValue(1 if state else 0)
-        query.bindValue(date.today().isoformat())
-        query.addBindValue(obj)
-        query.exec()
-
-    def load_today_goals(self):
-        query = QSqlQuery(self.conn)
-        query.prepare("SELECT objective, completed FROM Goals WHERE date = ?")
-        query.addBindValue(date.today().isoformat())
-        query.exec()
-        while query.next():
-            obj = query.value(0)
-            completed = bool(query.value(1))
-            checkbox = QCheckBox(text = obj)
-            checkbox.setChecked(completed)
-            checkbox.stateChanged.connect(lambda state, o=obj: self.save_goal_state(o, state))
-            self.created_check.append(checkbox)
-            self.work_space.addWidget(checkbox)
 
 
 
     def backhome(self):
         widget.setCurrentIndex(0)
-        
+
+    def open(self, item):
+        session = item.text()
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT session_notes FROM Session_information WHERE session_title = ?")
+        query.addBindValue(session)
+        query.exec()
+        if not query.exec():
+            QMessageBox.warning(self, "Error", f"Query Failed: {query.lastError.text()}")
+            return
+
+        if query.next():
+            session_body = query.value(0)
+            QMessageBox.information(self, f"Log Details for: {session}", session_body)
+        else:
+            QMessageBox.information(self, f"Log Details for: {session}", "No notes found")
+
+
+    def grab_logs(self):
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT session_title FROM Session_information ORDER BY session_id DESC LIMIT 5")
+        query.exec()
+        while query.next():
+            self.Log_widget.addItem(query.value(0))
 
 
 app = QApplication(sys.argv)
+app.setStyleSheet(
+    """
+    QPushButton{
+    background-color: #9D00FF;
+    color: white;
+    font-weight: bold;
+
+    }
+    """
+)
 
 conn = QSqlDatabase.addDatabase("QSQLITE", "app_conn")
 conn.setDatabaseName("programs.db")
