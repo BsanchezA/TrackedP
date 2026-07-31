@@ -4,9 +4,11 @@ import pyqtgraph as pg
 from tkinter.font import Font
 import dataTracker
 import sqlite3
+from collections import defaultdict
 from PyQt6 import QtWidgets
 from datetime import date
-from PyQt6.QtCore import QSize, QTimer, Qt, QThread, pyqtSignal
+from datetime import datetime, timedelta
+from PyQt6.QtCore import QObject, QSize, QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.uic import load_ui
 from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QGridLayout, QInputDialog, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPushButton, QScrollBar, QSpinBox, QTextEdit, QToolButton, QWidget, QStackedWidget,QVBoxLayout, QLabel, QHeaderView,  QTableView, QStyle, QHBoxLayout, QVBoxLayout
@@ -14,6 +16,7 @@ from PyQt6.QtSql import QSqlDatabase, QSqlTableModel, QSqlQuery, QSqlQueryModel
 
 class MainWindow(QMainWindow):
     update_bar_graph = pyqtSignal()
+    data_sent = pyqtSignal(int)
     def __init__(self, stack):
         super().__init__()
         self.stack = stack
@@ -32,7 +35,6 @@ class MainWindow(QMainWindow):
         self.App_data_window = secondWindow()
 
         # All buttons created
-        self.button = QPushButton("Sync")
         self.button2 = QPushButton("Start Timer")
         self.button4 = QPushButton("Activty In Depth")
         self.button5 = QPushButton("Productivity Peformance")
@@ -42,7 +44,6 @@ class MainWindow(QMainWindow):
         self.setGeometry(600, 600, 680, 600)
 
         Top_Button_layout.addWidget(self.button2)
-        Top_Button_layout.addWidget(self.button)
         Top_Button_layout.addWidget(self.button4)
         Top_Button_layout.addWidget(self.button5)
         Top_Button_layout.addWidget(self.add_task_button)
@@ -51,7 +52,6 @@ class MainWindow(QMainWindow):
         Top_Button_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Connect the buttons here
-        self.button.clicked.connect(self.sync)
         self.button2.clicked.connect(self.start_click)
         self.button4.clicked.connect(self.toggle_activity)
         self.button5.clicked.connect(self.gotoStudy)
@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
 
 
 
+
         container.setLayout(main_layout)
 
 
@@ -189,7 +190,8 @@ class MainWindow(QMainWindow):
 
         while query.next():
             day_num = int(query.value(0))
-            total_seconds = query.value(1)
+            total_second = query.value(1)
+            total_seconds = int(total_second) if total_second not in (None, '') else 0
             day_name = days[(day_num - 1) % 7]
             hours[day_name] = total_seconds / 3600.0
 
@@ -208,9 +210,7 @@ class MainWindow(QMainWindow):
         self.weekly_rating.getAxis('bottom').setTicks(ticks)
         print("hours: ", hours)
 
-
-
-        
+     
  
 
     def start_click(self):
@@ -221,15 +221,33 @@ class MainWindow(QMainWindow):
 
         self.button2.setEnabled(False)
         self.Track_helper.start()
+        self.start_reference = self.Track_helper.reference_start
 
         self.timer_window = TimerWindow_Popup(conn)
         #ONCE THESE SIGNALS ARE RECIEVED (END SESSION HAS BEEN CLICKED)
         self.timer_window.session_completed_time.connect(self._on_timer_session_done)
         self.timer_window.session_to_review.connect(self.switch_to_review_window)
+        self.timer_window.session_update_before_close.connect(self.sync)
 
 
         index = self.stack.addWidget(self.timer_window)
         self.stack.setCurrentIndex(index)
+
+    def start_(self):
+        query = QSqlQuery(self.conn)
+        query.prepare("INSERT INTO Session_time (date,start_time) VALUES (?, ?)")
+        query.addBindValue(date.today().isoformat())
+        query.addBindValue(datetime.now().timestamp())
+
+        if not query.exec():
+            print("Failed to start session", query.lastError().text())
+            return
+
+        self.recieved_for_SBD = query.lastInsertId()
+        self.Track_helper.set_session_id(self.recieved_for_SBD)
+
+
+        print("Just created: ", self.recieved_for_SBD)
 
     def switch_to_review_window(self):
         self.review_window = review_Popup(self)     
@@ -261,22 +279,12 @@ class MainWindow(QMainWindow):
         index_text = self.stack.addWidget(self.text_review)
         self.stack.setCurrentIndex(index_text)
 
-        print(self.stack)
-
     def text_cleanup(self):
         self.stack.removeWidget(self.text_review)
         self.text_review.deleteLater()
         self.text_review = None
         self.stack.setCurrentIndex(0)
         
-
-    def track_inside_session(self):
-        #Using run, we track specifically what is done app. wise during our study session. So from the start click, we put the app. and time into a seperate dict, and we push it into the save file of that specific study session,
-        #this means, we need to store the study session, idk how, but minimize AI for regular problem solving
-
-        
-
-        return 
 
     def _on_timer_session_done(self, result: int): 
         self.Track_helper._started = False
@@ -285,7 +293,6 @@ class MainWindow(QMainWindow):
 
         
         self.id_stack.append(self.mark_session_completed(result))
-        print(self.id_stack)
         self.load_session()
 
 
@@ -299,13 +306,15 @@ class MainWindow(QMainWindow):
     # This relates to the sessions completed of studying sessions
     def mark_session_completed(self, result):
         query = QSqlQuery(self.conn)
-        query.prepare("""INSERT INTO Session_time (date, session_time) 
-                      VALUES (?, ?)
+        query.prepare("""UPDATE Session_time  
+                        SET end_time = ?, session_time = ?
+                        WHERE session_id = ?
                       """)
-        query.addBindValue(date.today().isoformat())
+        query.addBindValue(datetime.now().timestamp())
         query.addBindValue(result)
+        query.addBindValue(self.recieved_for_SBD)
         if not query.exec():
-            print("Insert failed:", query.lastError().text())
+            print("Insert failed (Mark sessino completed):", query.lastError().text())
             return None
 
         recent_session = query.lastInsertId()
@@ -328,11 +337,12 @@ class MainWindow(QMainWindow):
         query.addBindValue(today)
         query.exec()
         if query.next():
-            session_counted = query.value(1)
+            raw_data = query.value(1)
         else:
-            session_counted = 0
-
-        timenow = str(datetime.timedelta(seconds = session_counted))
+            raw_data = 0
+        
+        session_counted = int(raw_data) if raw_data not in (None, '') else 0
+        timenow = str(timedelta(seconds = session_counted))
         
         self.label_sesssion_completed.setText(f"Time Spent Studying: {timenow}")
         self.label_sesssion_completed.setStyleSheet(
@@ -347,7 +357,9 @@ class MainWindow(QMainWindow):
 
     def sync(self):
         self.Track_helper.saveDB(self.Track_helper.active_data_time)
-        self.Track_helper.saveSBD(self.Track_helper.title_dict)
+        self.end_now = datetime.now()
+        self.started = self.Track_helper.reference_start
+        self.Track_helper.saveSBD(self.Track_helper.title_dict, self.started, self.end_now)
 
     
 
@@ -358,8 +370,18 @@ class MainWindow(QMainWindow):
             self.App_data_window.show()
 
     def gotoStudy(self):
-        widget.setCurrentIndex(1)
+        self.Study_window = studyWindow(conn)
+        self.Study_window.study_done.connect(self.study_cleanup)
 
+        index_study = self.stack.addWidget(self.Study_window)
+        self.stack.setCurrentIndex(index_study)
+
+    def study_cleanup(self):
+        self.stack.removeWidget(self.Study_window)
+        self.Study_window.deleteLater()
+        self.Study_window = None
+        self.stack.setCurrentIndex(0)
+    
     def go_settings(self):
         widget.setCurrentIndex(2)
 
@@ -418,6 +440,9 @@ class MainWindow(QMainWindow):
         query.addBindValue(obj)
         query.exec()
 
+
+
+
 class task_pop_up(QDialog):
     def __init__(self, parent = None):
         super().__init__(parent)
@@ -446,6 +471,7 @@ class TimerWindow_Popup(QWidget):
     session_completed_time = pyqtSignal(int)
     session_to_review = pyqtSignal()
     session_update = pyqtSignal()
+    session_update_before_close = pyqtSignal()
 
 
     def __init__(self, conn,  buffer_seconds = 30 ,parent = None):
@@ -459,7 +485,9 @@ class TimerWindow_Popup(QWidget):
         self.in_buffer = True
         self.elapsed_start = False
         self.review_flag = False
+        self.title_dict = defaultdict(dict)
         self.review_session_opened = review_Popup(self)
+        main_window.start_()
         
 
 
@@ -555,7 +583,7 @@ class TimerWindow_Popup(QWidget):
 
     def end_session(self):
         self.qtimer.stop()
-
+        self.session_update_before_close.emit()
         # sends the signal to update the bar graph with new session data
         self.session_update.emit()
         #sends the signal to update to main window and save the data to display
@@ -835,15 +863,17 @@ class secondWindow(QMainWindow):
         self.projectView.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.stacked_widget.addWidget(page)
             
-class studyWindow(QMainWindow):
+class studyWindow(QWidget):
+    study_done = pyqtSignal()
+    open_this = pyqtSignal(str)
     def __init__(self, conn):
         super().__init__()
         self.conn = conn
         self.setWindowTitle("Study Window")
         self.setMinimumSize(800, 800)
-        container = QWidget()
-        self.setCentralWidget(container)
-        layout = QVBoxLayout(container)
+        self.session_win = Session_Overview_Page(conn, self)
+
+        layout = QVBoxLayout(self)
 
 
         self.workspace = QHBoxLayout()
@@ -869,7 +899,7 @@ class studyWindow(QMainWindow):
         Log_scroll = QScrollBar(self)
         Log_scroll.setMaximum(self.Log_widget.count())
         Log_scroll.sliderMoved.connect(self.Log_widget.setCurrentRow)
-        self.Log_widget.itemDoubleClicked.connect(self.open)
+        self.Log_widget.itemDoubleClicked.connect(self.open_session_page)
         self.middle.addWidget(self.Log_widget)
         self.middle.addWidget(Log_scroll)
 
@@ -884,31 +914,241 @@ class studyWindow(QMainWindow):
 
 
     def backhome(self):
-        widget.setCurrentIndex(0)
+        self.study_done.emit()
 
-    def open(self, item):
-        session = item.text()
-        query = QSqlQuery(self.conn)
-        query.prepare("SELECT session_notes FROM Session_information WHERE session_title = ?")
-        query.addBindValue(session)
-        query.exec()
-        if not query.exec():
-            QMessageBox.warning(self, "Error", f"Query Failed: {query.lastError.text()}")
-            return
-
-        if query.next():
-            session_body = query.value(0)
-            QMessageBox.information(self, f"Log Details for: {session}", session_body)
+    def open_session_page(self, item):
+        if self.session_win.isVisible():
+            self.session_win.hide()
         else:
-            QMessageBox.information(self, f"Log Details for: {session}", "No notes found")
+            self.session_win.show()
+            self.open_this.emit(item.text())
+        
+        
+
+    # def open(self, item):
+    #     session = item.text()
+    #     query = QSqlQuery(self.conn)
+    #     query.prepare("SELECT session_notes FROM Session_information WHERE session_title = ?")
+    #     query.addBindValue(session)
+    #     query.exec()
+    #     if not query.exec():
+    #         QMessageBox.warning(self, "Error", f"Query Failed: {query.lastError.text()}")
+    #         return
+
+    #     if query.next():
+    #         session_body = query.value(0)
+    #         QMessageBox.information(self, f"Log Details for: {session}", session_body)
+    #     else:
+    #         QMessageBox.information(self, f"Log Details for: {session}", "No notes found")
 
 
     def grab_logs(self):
         query = QSqlQuery(self.conn)
-        query.prepare("SELECT session_title FROM Session_information ORDER BY session_id DESC LIMIT 5")
+        query.prepare("SELECT session_title FROM Session_information ORDER BY session_id DESC")
         query.exec()
         while query.next():
             self.Log_widget.addItem(query.value(0))
+
+class Session_Overview_Page(QWidget):
+    overview_done = pyqtSignal()
+    def __init__(self, conn, study_window):
+        super().__init__()
+        self.conn = conn
+        study_window.open_this.connect(self.grab_title)
+        self.setMinimumSize(600, 500)
+        layout = QVBoxLayout(self)
+        self.evaluation = {}
+        self.top_layout = QHBoxLayout()
+        self.top_layout.addStretch()
+        self.title = QLabel("")
+        
+        self.title.setStyleSheet(
+            """
+            font-family: 'DM Sans';
+            font-size: 14px;
+            font-weight: 700;
+            """
+        )
+        self.this_session_id = QLabel("")
+        self.this_session_id.setStyleSheet(
+            """
+            font-family: 'DM Sans';
+            font-size: 12 px;
+            font-weight: 600;
+            """
+        )
+
+        self.top_layout.addWidget(self.title, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.top_layout.addStretch()
+        self.top_layout.addWidget(self.this_session_id, alignment=Qt.AlignmentFlag.AlignRight)
+
+
+        layout.addLayout(self.top_layout)
+
+
+        self.date_row = QVBoxLayout()
+        self.date_session = QLabel("")
+        self.time_from_to = QLabel("")
+        self.date_session.setStyleSheet(
+            """
+            font-family: 'DM Sans';
+            font-size: 13px;
+            font-weight: 600px;
+            """
+        )
+        self.time_from_to.setStyleSheet(
+            """
+            font-family: 'DM Sans';
+            font-size: 13px;
+            font-weight: 600px;
+            """
+        )
+        self.date_row.addWidget(self.date_session, alignment= Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.date_row.addWidget(self.time_from_to, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        layout.addLayout(self.date_row)
+
+        self.alert_button_row = QHBoxLayout()
+        self.alert_button_row.addStretch()
+        self.alert_message = QPushButton("Info")
+        self.alert_message.setStyleSheet("font-size: 11px; padding: 2px 5px")
+        self.alert_message.setFixedSize(50, 20)
+        self.alert_message.clicked.connect(self.show_info)
+        self.alert_button_row.addWidget(self.alert_message, alignment=Qt.AlignmentFlag.AlignTop)
+
+        layout.addLayout(self.alert_button_row)
+
+        self.eval_row = QHBoxLayout()
+        self.apps = QLabel("")
+        self.apps.setStyleSheet(
+            """
+            font-family: 'DM Sans';
+            font-size: 15px;
+            font-weight: 600px;
+            """
+        )
+
+        self.eval_row.addStretch()
+        self.eval_row.addWidget(self.apps, alignment=Qt.AlignmentFlag.AlignBottom)
+
+        layout.addLayout(self.eval_row)
+        layout.addStretch()
+
+        self.notes_row = QHBoxLayout()
+        self.notes_area = QLabel("")
+        self.notes_area.setWordWrap(True)
+        self.notes_row.addWidget(self.notes_area)
+        self.notes_area.setStyleSheet(
+                """
+                font-family: 'DM Sans';
+                font-size: 16px;
+                font-weight: 400px;
+                background-color:#303030; 
+                """
+                )
+
+        layout.addLayout(self.notes_row)
+        layout.addStretch()
+
+    def grab_apps(self, session_id):
+        #This is for the OverView of Applications (No Sub)
+        self.evaluation.clear()
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT app_name, duration FROM app_usage WHERE session_id = ? AND duration > 20")
+        query.addBindValue(session_id)
+        query.exec()
+        self.full_time = 0
+        while query.next():
+            App_name = query.value(0)
+            duration_App = query.value(1)
+            self.evaluation[App_name] = duration_App
+        for name, duration in self.evaluation.items():
+            self.full_time += int(duration)
+        self.display_apps(self.evaluation, self.full_time)
+
+    def display_apps(self, dictionary, full_time):
+        text = ""
+        for name, duration in dictionary.items():
+            percent_result = (duration / full_time) * 100
+            time_duration = str(timedelta(seconds = int(duration)))
+            text += f"{name} : {time_duration} - {percent_result:.1f}% \n"
+        
+        self.apps.setText(text)
+
+
+    def grab_title(self, item):
+        self.title.setText(item)
+        self.grab_session_id(item)
+
+    def grab_session_id(self,item):
+        query = QSqlQuery(self.conn)
+        query.prepare(
+            """
+                Select session_id FROM Session_information WHERE session_title = ?
+            """
+        )
+        query.addBindValue(item)
+        query.exec()
+        if query.next():
+            session_new = query.value(0)
+        self.this_session_id.setText(f"Session: {session_new}")
+        self.grab_session_date_time(session_new)
+        # self.grab_timestamp(session_new)
+        self.grab_notes(session_new)
+        self.grab_time_session(session_new)
+        self.grab_apps(session_new)
+
+    def grab_session_date_time(self, session_id):
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT date FROM Session_time WHERE session_id = ?")
+        query.addBindValue(session_id)
+        query.exec()
+        if query.next():
+            self.date_for_this = query.value(0)
+        self.date_session.setText(f"Date: {self.date_for_this}")
+
+    def grab_notes(self, session_id):
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT session_notes FROM Session_information WHERE session_id = ?")
+        query.addBindValue(session_id)
+        query.exec()
+        if query.next():
+            self.notes = query.value(0)
+        self.notes_area.setText(self.notes)
+
+    def grab_time_session(self, session_id):
+        query = QSqlQuery(self.conn)
+        query.prepare("SELECT start_time, end_time, session_time FROM Session_time WHERE session_id = ?")
+        query.addBindValue(session_id)
+        query.exec()
+        real_time = end_time = None
+        if query.next():
+            real_time = query.value(0)
+            end_time = query.value(1)
+            duration = query.value(2)
+        rl_time = datetime.fromtimestamp(real_time)
+        el_time = datetime.fromtimestamp(end_time)
+        display_start = rl_time.strftime("%I:%M %p")
+        display_end = el_time.strftime("%I: %M %p")
+        session_counted = int(duration) if duration not in (None, '') else 0
+        timenow = str(timedelta(seconds = session_counted))
+
+        self.time_from_to.setText(f"Started From: {display_start} to {display_end} | Duration: {timenow}")
+
+    def show_info(self):
+        alert = QMessageBox(self)
+        alert.setWindowTitle("Useful Information")
+        alert.setText("The application shown below are the applications tracked during the session. Any application that was focused on less than 20 seconds will not be reported ")
+        alert.setIcon(QMessageBox.Icon.Information)
+        alert.exec()
+
+
+
+
+        
+
+
+
 
 
 app = QApplication(sys.argv)
@@ -927,7 +1167,6 @@ conn = QSqlDatabase.addDatabase("QSQLITE", "app_conn")
 conn.setDatabaseName("programs.db")
 conn.open()
 
-track_helper = dataTracker.Trackon()
 
 widget = QtWidgets.QStackedWidget()
 main_window = MainWindow(widget)

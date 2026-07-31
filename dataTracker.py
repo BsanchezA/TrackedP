@@ -7,11 +7,13 @@ import ctypes
 import datetime
 import threading
 import copy
+from PyQt6.QtSql import QSqlDatabase, QSqlTableModel, QSqlQuery, QSqlQueryModel
 from datetime import datetime, timedelta
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 from collections import defaultdict
 from ctypes import wintypes
 
+stack_id_track =[]
 
 class Trackon(QThread):
     finished = pyqtSignal()
@@ -25,7 +27,7 @@ class Trackon(QThread):
         self.last_title = None
         self.lock = threading.Lock()
         self.start_time = datetime.now()
-
+        self.reference_start = None
 
     def saveDB(self, active_data_dict):
         conn = sqlite3.connect("programs.db")
@@ -49,42 +51,67 @@ class Trackon(QThread):
         active_data_dict.clear()
 
 
-    def saveSBD(self, last_title):
+    def saveSBD(self, last_title, start_ts, end_ts):
+        #last_title is a place holder for the dictionary (almost forgot and got confused)
 
         print(f"{last_title}")
         conn = sqlite3.connect("programs.db")
         cur = conn.cursor()
-        cur.execute("PRAGMA foreign_keys = ON;")
 
-
+            
         query = """
-            INSERT INTO subprogram (Program, title, time)
-            VALUES(?, ?, ?)
-            ON CONFLICT(Program, title) DO UPDATE SET time = time + excluded.time
+            INSERT INTO app_usage (session_id, app_name, start_ts, end_ts, duration, app_web)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (session_id, app_name, app_web) DO UPDATE SET
+                duration = duration + excluded.duration,
+                end_ts = excluded.end_ts
             """
         
+
         data_insert = []
+        #This won't work anymore ,I need to get this data from MainG
+        gen_id = self.get_session_id()
+        print("This should match what was just created: ", gen_id)
+        print(data_insert)
+
+
+        
         for program_name, subprogram in last_title.items():
             for sub_title, time in subprogram.items():
-                data_insert.append((program_name, sub_title, time))
+                data_insert.append((
+                    gen_id,
+                    program_name,
+                    start_ts.timestamp(),
+                    end_ts.timestamp(),
+                    time,
+                    sub_title
+                ))
+        
 
+        cur.executemany(query, data_insert)
+        conn.commit()
+        print("Success SubProgram DB")
+        last_title.clear()    
+        conn.close()
 
-        try:
-            cur.executemany(query, data_insert)
-            conn.commit()
-            print("Success SubProgram DB")
-            last_title.clear()    
-        except sqlite3.Error as e:
-            print(f"Sub DB ERROR: {e}")
-            conn.rollback() # If it messes up, it undos any changes 
-        finally:
-            conn.close()
+    
+    def set_session_id(self, new_id):
+        with self.lock:
+            self.session_id = new_id
+
+    def get_session_id(self,):
+        with self.lock:
+            return self.session_id
+
     
 
 
 
 
     last_title = None
+
+
+        
 
 
     
@@ -102,6 +129,7 @@ class Trackon(QThread):
         self.last_exe = None
         self.last_subname = None
         save_start_time = datetime.now()
+        self.reference_start = save_start_time
 
         def handle_event(hWinEventHook, event, hwnd, idObject, idDChild, dwEventThread, dwmsEventTime):
             nonlocal start_time
@@ -161,12 +189,15 @@ class Trackon(QThread):
                     while True:
                         time.sleep(30)
                         if datetime.now() >= save_start_time + timedelta(minutes = 5):
+                            flush_start = save_start_time
+                            self.reference_start = flush_start
+                            flush_end = datetime.now()
                             with self.lock:
                                 parent_copy = copy.deepcopy(self.active_data_time)
                                 child_copy = copy.deepcopy(self.title_dict)
                             
                             self.saveDB(parent_copy)
-                            self.saveSBD(child_copy)
+                            self.saveSBD(child_copy, self.flush_start, flush_end)
                             print("Success after 5 minutes")
                             save_start_time = datetime.now()
 
@@ -194,7 +225,8 @@ class Trackon(QThread):
             0, 0,
             0x0000
         )
-
+        current_hwnd = ctypes.windll.user32.GetForegroundWindow()
+        handle_event(None, 0x0003, current_hwnd, 0, 0, 0, 0)
         msg = ctypes.wintypes.MSG()
         while ctypes.windll.user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
             ctypes.windll.user32.TranslateMessage(ctypes.byref(msg))
@@ -208,9 +240,9 @@ class Trackon(QThread):
         
 
 
-if __name__ == "__main__":
-    tracker = Trackon()
-    tracker.start_tracking()
+# if __name__ == "__main__":
+#     tracker = Trackon()
+#     tracker.start()
 
 
 
