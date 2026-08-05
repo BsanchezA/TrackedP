@@ -923,23 +923,6 @@ class studyWindow(QWidget):
             self.session_win.show()
             self.open_this.emit(item.text())
         
-        
-
-    # def open(self, item):
-    #     session = item.text()
-    #     query = QSqlQuery(self.conn)
-    #     query.prepare("SELECT session_notes FROM Session_information WHERE session_title = ?")
-    #     query.addBindValue(session)
-    #     query.exec()
-    #     if not query.exec():
-    #         QMessageBox.warning(self, "Error", f"Query Failed: {query.lastError.text()}")
-    #         return
-
-    #     if query.next():
-    #         session_body = query.value(0)
-    #         QMessageBox.information(self, f"Log Details for: {session}", session_body)
-    #     else:
-    #         QMessageBox.information(self, f"Log Details for: {session}", "No notes found")
 
 
     def grab_logs(self):
