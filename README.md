@@ -14,7 +14,7 @@ This is a small tab that allows the user to the see the total amount of time spe
 
 #### Productivity Performance
 This tab is meant to let the users see their past sessions. This is where you can see each title, notes, topic and the applications that were tracked. The tracked sessions is listed with the time and the percentage per the total applications that was tracked. This allows users to see what they studied during certain days or reflect on the session
-
+![Performance Tab Example](image_2026-09-06_004452120.png)
 
 
 ## How it Works
@@ -23,3 +23,5 @@ This tab is meant to let the users see their past sessions. This is where you ca
 * **Thread-Safe State Sharing** - Shared tracking state is protected with "thread-locking" and "copy.deepcopy" to avoid race conditions
 * **Concurrent Safe Storage** - SQLite runs in WAL mode to support safe concurrent reads/writes across thread, SQLite also provides local saving and not needed for over the internet
   
+
+## Application Usage to Public will be posted in the near future
