@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
         container = QWidget()
         main_layout = QVBoxLayout()  # top-level row stack
 
-        # --- Row 0: Top button bar ---
+        #  Row 0: Top button bar
         Top_Button_layout = QHBoxLayout()
 
         # adding the screen time window
@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self.Track_helper = dataTracker.Trackon()
         self.datafornow = {}
 
-        # --- Row 1: Date label + session-completed label ---
+        # Row 1: Date label + session-completed label 
         date_row = QHBoxLayout()
         today = date.today()
         format_two = today.strftime("%B %d, %Y")
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(date_row)
 
-        # --- Row 2: Tasks header ---
+        #Row 2: Tasks header 
         self.created_check = []
         print(self.created_check)
         self.top_3_goals = QLabel("Todays Tasks :")
@@ -114,14 +114,14 @@ class MainWindow(QMainWindow):
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
         )
 
-        # --- Row 3: Workspace ---
+        # Row 3: Workspace 
         self.workspace = QVBoxLayout()
         main_layout.addLayout(self.workspace)
         main_layout.addStretch()
     
         #add strech is what keeps everything together after adding, this should be placed after adding all rows of information
 
-        # ---Row 4: Bar Graph ---
+        # Row 4: Bar Graph 
         main_layout.addLayout(self.build_bar_row(self.build_bar_analysis()))
 
 
@@ -273,7 +273,7 @@ class MainWindow(QMainWindow):
     def go_to_text_window(self):
         self.text_review = text_review(conn, self)
 
-        #This prompts to clean up after finished with the text notes (IDK if I need to cleanup both text and review)
+        #This prompts to clean up after finished with the text notes
         self.text_review.text_done.connect(self.text_cleanup)
 
         index_text = self.stack.addWidget(self.text_review)
@@ -320,10 +320,8 @@ class MainWindow(QMainWindow):
         recent_session = query.lastInsertId()
         self.update_bar_graph()
         return recent_session
-    #Loads the time of the session since this makes more sense
 
-    ## READ THIS - 7/17/26
-    #I need to add the emit functions for when it takes us to text page or vide 
+
 
     def load_session(self):
         query = QSqlQuery(self.conn)
@@ -417,7 +415,7 @@ class MainWindow(QMainWindow):
         query.addBindValue(obj)
         query.exec()
 
-        #Future addition, If all 3 are done, there is an option to clear out again and add 3 new ones. But the focus is to break down the day to 3 tasks to not overwhelm the user
+
 
     def load_today_goals(self):
         query = QSqlQuery(self.conn)
@@ -476,9 +474,6 @@ class TimerWindow_Popup(QWidget):
 
     def __init__(self, conn,  buffer_seconds = 30 ,parent = None):
         super().__init__(parent)
-        # self.stackedWidget2 = QStackedWidget()
-        # #maybe if not, delete this
-        # self.setCentra
         self.conn = conn
         self.buffer_seconds = buffer_seconds
         self.elapsed_seconds = 0
@@ -755,7 +750,7 @@ class settings_window(QWidget):
         )
         main_layout.addWidget(app_explain)
 
-    #This row will be focusing on which apps will trigger a notification to get off
+
        
 
 
