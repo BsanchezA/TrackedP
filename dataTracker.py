@@ -32,18 +32,14 @@ class Trackon(QThread):
     def saveDB(self, active_data_dict):
         conn = sqlite3.connect("programs.db")
         cur = conn.cursor()
-        # Check if program is inside the db already, and outsource the time spent
-        #if it is, then we add the current time spent with the saved time adn return that back to the database
 
-        #checking
+
         query = """
             INSERT INTO program (Program, time) 
             Values(?, ?)
             ON CONFLICT(Program) DO UPDATE SET time = time + excluded.time
             """
-        # Insert puts in the title and program title into the database if it doesn't exist
-        #If the conflict on Program(Since it's a primary key)
-        #it will just update the time
+
         cur.executemany(query, active_data_dict.items())
         print("saved into db correctly")
         conn.commit()
@@ -52,7 +48,7 @@ class Trackon(QThread):
 
 
     def saveSBD(self, last_title, start_ts, end_ts):
-        #last_title is a place holder for the dictionary (almost forgot and got confused)
+
 
         print(f"{last_title}")
         conn = sqlite3.connect("programs.db")
@@ -69,7 +65,7 @@ class Trackon(QThread):
         
 
         data_insert = []
-        #This won't work anymore ,I need to get this data from MainG
+
         gen_id = self.get_session_id()
         print("This should match what was just created: ", gen_id)
         print(data_insert)
@@ -118,7 +114,7 @@ class Trackon(QThread):
 
 
     ## This is what were trying to replace for the constant dictionary time
-    ## This will be inside the while loop as
+
     def run(self):
         self.win_threadid = ctypes.windll.kernel32.GetCurrentThreadId()
         start_time = datetime.now()
@@ -238,11 +234,6 @@ class Trackon(QThread):
         W_QUIT = 0x0012
         ctypes.windll.user32.PostThreadMessageW(self.win_threadid, W_QUIT, 0, 0)
         
-
-
-# if __name__ == "__main__":
-#     tracker = Trackon()
-#     tracker.start()
 
 
 
